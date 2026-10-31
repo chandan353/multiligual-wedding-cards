@@ -161,7 +161,7 @@ export default function Editor({ id }: { id: string }) {
       savedJson.current = payload(card);
       return;
     }
-    const t = window.setTimeout(() => persist(card), 700);
+    const t = window.setTimeout(() => persist(card), 1500);
     return () => window.clearTimeout(t);
   }, [card, persist]);
 

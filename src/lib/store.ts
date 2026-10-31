@@ -1,24 +1,22 @@
 import "server-only";
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { Redis } from "@upstash/redis";
-import { put } from "@vercel/blob";
+import { createHmac } from "node:crypto";
+import { BlobNotFoundError, get, list, put } from "@vercel/blob";
 import type { Card, Rsvp } from "./types";
 
 /**
- * Storage for cards, RSVPs and uploaded photos.
+ * Storage for cards, RSVPs and uploaded photos. One backend at a time:
  *
- * - Data: Upstash Redis when UPSTASH_REDIS_REST_URL/TOKEN (or Vercel's
- *   KV_REST_API_URL/TOKEN) are set, otherwise JSON files under DATA_DIR.
- * - Photos: Vercel Blob when BLOB_READ_WRITE_TOKEN is set, otherwise files
- *   under DATA_DIR served by /api/uploads.
- *
- * Serverless hosts such as Vercel have no persistent disk, so both cloud
- * backends are required there.
+ * - Vercel Blob when BLOB_READ_WRITE_TOKEN is set (the only service needed on
+ *   Vercel, whose functions have no persistent disk).
+ * - JSON and image files under DATA_DIR otherwise (local dev, or any server
+ *   with a disk). Zero setup.
  */
 
 interface Backend {
-  getCard(id: string): Promise<Card | null>;
+  /** fresh: bypass caches (editor and API writes). Guest pages accept up to a minute of staleness. */
+  getCard(id: string, fresh: boolean): Promise<Card | null>;
   putCard(card: Card): Promise<void>;
   slugOwner(slug: string): Promise<string | null>;
   /** Atomically claim a slug. Returns false if another card owns it. */
@@ -27,36 +25,72 @@ interface Backend {
   addRsvp(rsvp: Rsvp): Promise<void>;
 }
 
-// ---------------------------------------------------------------- Redis
+// ---------------------------------------------------------------- Vercel Blob
 
-function redisFromEnv(): Redis | null {
-  const url = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
-  return url && token ? new Redis({ url, token }) : null;
+/**
+ * Blob stores serve files at public URLs, so private data (cards hold the edit
+ * token, RSVPs hold guests' contact details) lives under a path that includes
+ * an HMAC of the id keyed by the store's secret token. Nobody can guess the
+ * URL, and only the server can list the store.
+ */
+function secretPath(kind: string, id: string): string {
+  const key = process.env.BLOB_READ_WRITE_TOKEN || "";
+  return `data/${kind}/${id}-${createHmac("sha256", key).update(`${kind}:${id}`).digest("hex").slice(0, 32)}`;
 }
 
-function redisBackend(redis: Redis): Backend {
+async function blobJson<T>(pathname: string, fresh: boolean): Promise<T | null> {
+  const res = await get(pathname, { access: "public", useCache: !fresh }).catch((e) => {
+    if (e instanceof BlobNotFoundError) return null;
+    throw e;
+  });
+  if (!res || !res.stream) return null;
+  return (await new Response(res.stream).json()) as T;
+}
+
+async function putJson(pathname: string, data: unknown, overwrite: boolean) {
+  await put(pathname, JSON.stringify(data), {
+    access: "public",
+    contentType: "application/json",
+    addRandomSuffix: false,
+    allowOverwrite: overwrite,
+    cacheControlMaxAge: 60,
+  });
+}
+
+function blobBackend(): Backend {
   return {
-    async getCard(id) {
-      return (await redis.get<Card>(`card:${id}`)) ?? null;
-    },
-    async putCard(card) {
-      await redis.set(`card:${card.id}`, card);
-    },
+    getCard: (id, fresh) => blobJson<Card>(`${secretPath("cards", id)}.json`, fresh),
+    putCard: (card) => putJson(`${secretPath("cards", card.id)}.json`, card, true),
     async slugOwner(slug) {
-      return (await redis.get<string>(`slug:${slug}`)) ?? null;
+      // A slug never changes owner once claimed, so the cached copy is always right.
+      return (await blobJson<{ cardId: string }>(`data/slugs/${slug}.json`, false))?.cardId ?? null;
     },
     async claimSlug(slug, cardId) {
-      const ok = await redis.set(`slug:${slug}`, cardId, { nx: true });
-      if (ok) return true;
-      return (await redis.get<string>(`slug:${slug}`)) === cardId;
+      try {
+        await putJson(`data/slugs/${slug}.json`, { cardId }, false); // fails if it already exists
+        return true;
+      } catch {
+        return (await blobJson<{ cardId: string }>(`data/slugs/${slug}.json`, true))?.cardId === cardId;
+      }
     },
     async listRsvps(cardId) {
-      return (await redis.lrange<Rsvp>(`rsvps:${cardId}`, 0, -1)) ?? [];
+      const prefix = `${secretPath("rsvps", cardId)}/`;
+      const paths: string[] = [];
+      let cursor: string | undefined;
+      do {
+        const page = await list({ prefix, cursor, limit: 1000 });
+        paths.push(...page.blobs.map((b) => b.pathname));
+        cursor = page.hasMore ? page.cursor : undefined;
+      } while (cursor);
+      const out: Rsvp[] = [];
+      for (let i = 0; i < paths.length; i += 20) {
+        const batch = await Promise.all(paths.slice(i, i + 20).map((p) => blobJson<Rsvp>(p, true)));
+        out.push(...batch.filter((r): r is Rsvp => !!r));
+      }
+      return out.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
     },
-    async addRsvp(rsvp) {
-      await redis.rpush(`rsvps:${rsvp.cardId}`, rsvp);
-    },
+    // One blob per RSVP, so simultaneous replies never overwrite each other.
+    addRsvp: (rsvp) => putJson(`${secretPath("rsvps", rsvp.cardId)}/${rsvp.id}.json`, rsvp, false),
   };
 }
 
@@ -112,17 +146,14 @@ function fileBackend(): Backend {
 
 // ---------------------------------------------------------------- selection
 
-const redis = redisFromEnv();
-const backend: Backend = redis ? redisBackend(redis) : fileBackend();
+const useBlob = Boolean(process.env.BLOB_READ_WRITE_TOKEN);
+const backend: Backend = useBlob ? blobBackend() : fileBackend();
 
-export const storageInfo = {
-  data: redis ? "redis" : "files",
-  uploads: process.env.BLOB_READ_WRITE_TOKEN ? "blob" : "files",
-} as const;
+export const storageInfo = { data: useBlob ? "blob" : "files", uploads: useBlob ? "blob" : "files" } as const;
 
 function assertPersistent() {
   if (process.env.VERCEL && storageInfo.data === "files") {
-    throw new Error("No database is connected. Add Upstash Redis in your Vercel project's Storage tab, then redeploy.");
+    throw new Error("Storage isn't connected. Add a Blob store in your Vercel project's Storage tab, then redeploy.");
   }
 }
 
@@ -137,9 +168,9 @@ function serialize<T>(key: string, fn: () => Promise<T>): Promise<T> {
 
 const safeId = (id: string) => /^[a-zA-Z0-9_-]{1,64}$/.test(id);
 
-export async function getCard(id: string): Promise<Card | null> {
+export async function getCard(id: string, opts: { fresh?: boolean } = {}): Promise<Card | null> {
   if (!safeId(id)) return null;
-  return backend.getCard(id);
+  return backend.getCard(id, opts.fresh ?? true);
 }
 
 export async function saveCard(card: Card): Promise<Card> {
@@ -161,9 +192,11 @@ export async function updateCard(id: string, fn: (card: Card) => Card | Promise<
   });
 }
 
-export async function getCardBySlug(slug: string): Promise<Card | null> {
+/** Guest-facing lookup: may serve a copy up to a minute old, which keeps page views cheap. */
+export async function getCardBySlug(slug: string, opts: { fresh?: boolean } = {}): Promise<Card | null> {
+  if (!/^[a-z0-9-]{1,64}$/i.test(slug)) return null;
   const id = await backend.slugOwner(slug.toLowerCase());
-  return id ? getCard(id) : null;
+  return id ? getCard(id, { fresh: opts.fresh ?? false }) : null;
 }
 
 export async function claimSlug(slug: string, cardId: string): Promise<boolean> {
@@ -184,11 +217,11 @@ export async function addRsvp(rsvp: Rsvp): Promise<Rsvp> {
 
 /** Store an uploaded photo and return the URL the page should use. */
 export async function saveUpload(name: string, data: Buffer, contentType: string): Promise<string> {
-  if (process.env.BLOB_READ_WRITE_TOKEN) {
+  if (useBlob) {
     const blob = await put(`uploads/${name}`, data, { access: "public", contentType, addRandomSuffix: false, cacheControlMaxAge: 31536000 });
     return blob.url;
   }
-  if (process.env.VERCEL) throw new Error("Photo storage isn't connected. Add Vercel Blob in your project's Storage tab, then redeploy.");
+  assertPersistent();
   await fs.mkdir(UPLOADS, { recursive: true });
   await fs.writeFile(path.join(UPLOADS, name), data);
   return `/api/uploads/${name}`;
