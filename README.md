@@ -44,7 +44,7 @@ Other scripts: `npm run build`, `npm start`, `npm test` (Vitest unit tests) and 
 
 The only extra service is **Vercel Blob**, which is built into Vercel. It's needed because Vercel functions can't keep files on disk.
 
-1. Import the repository at [vercel.com/new](https://vercel.com/new). The defaults (Next.js preset, `npm run build`) work as they are.
+1. Import the repository at [vercel.com/new](https://vercel.com/new). `vercel.json` pins the Next.js framework preset, so leave the build and output settings empty. If a deploy shows Vercel's own "404 NOT_FOUND" page, check **Settings → Build and Deployment**: Framework Preset must be **Next.js**, with no Output Directory override.
 2. In the project's **Storage** tab, create a **Blob** store and connect it to the project. This sets `BLOB_READ_WRITE_TOKEN` automatically.
 3. Under **Settings → Environment Variables**, optionally add `ANTHROPIC_API_KEY` for AI writing and translation, and set `NEXT_PUBLIC_BASE_URL` to your production URL.
 4. Redeploy so the new variables take effect, then open `/api/status`. It should report `"data":"blob"`.
