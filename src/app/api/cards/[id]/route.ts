@@ -1,4 +1,4 @@
-import { authorizedCard, error, json } from "@/lib/http";
+import { authorizedCard, error, json, safe } from "@/lib/http";
 import { updateCard } from "@/lib/store";
 import { sanitizeContent, sanitizeLangMap } from "@/lib/card";
 import { sanitizeDesign, sanitizeMedia } from "@/lib/apply";
@@ -8,14 +8,14 @@ import type { Card } from "@/lib/types";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-export async function GET(req: Request, { params }: Ctx) {
+async function GETHandler(req: Request, { params }: Ctx) {
   const { id } = await params;
   const card = await authorizedCard(req, id);
   if (card instanceof Response) return card;
   return json({ card });
 }
 
-export async function PUT(req: Request, { params }: Ctx) {
+async function PUTHandler(req: Request, { params }: Ctx) {
   const { id } = await params;
   const auth = await authorizedCard(req, id);
   if (auth instanceof Response) return auth;
@@ -41,3 +41,6 @@ export async function PUT(req: Request, { params }: Ctx) {
   });
   return json({ card: updated });
 }
+
+export const GET = safe(GETHandler);
+export const PUT = safe(PUTHandler);

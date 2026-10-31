@@ -1,10 +1,10 @@
-import { authorizedCard, error, json } from "@/lib/http";
+import { authorizedCard, error, json, safe } from "@/lib/http";
 import { claimSlug, getCardBySlug, updateCard } from "@/lib/store";
 import { validateSlug } from "@/lib/slug";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-export async function POST(req: Request, { params }: Ctx) {
+async function POSTHandler(req: Request, { params }: Ctx) {
   const { id } = await params;
   const card = await authorizedCard(req, id);
   if (card instanceof Response) return card;
@@ -25,3 +25,5 @@ export async function POST(req: Request, { params }: Ctx) {
   }));
   return json({ card: updated });
 }
+
+export const POST = safe(POSTHandler);

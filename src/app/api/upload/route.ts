@@ -1,4 +1,4 @@
-import { authorizedCard, error, json } from "@/lib/http";
+import { authorizedCard, error, json, safe } from "@/lib/http";
 import { saveUpload } from "@/lib/store";
 import { uid } from "@/lib/card";
 
@@ -12,7 +12,7 @@ function sniff(buf: Buffer): string | null {
   return null;
 }
 
-export async function POST(req: Request) {
+async function POSTHandler(req: Request) {
   const form = await req.formData().catch(() => null);
   const cardId = String(form?.get("cardId") ?? "");
   const card = await authorizedCard(req, cardId);
@@ -24,6 +24,12 @@ export async function POST(req: Request) {
   const type = sniff(buf);
   if (!type) return error("Please upload a JPG, PNG or WebP image.");
   const name = `${card.id}-${uid()}.${TYPES[type]}`;
-  await saveUpload(name, buf);
-  return json({ url: `/api/uploads/${name}` }, 201);
+  try {
+    return json({ url: await saveUpload(name, buf, type) }, 201);
+  } catch (e) {
+    console.error("[upload]", e);
+    return error((e as Error).message || "Upload failed", 500);
+  }
 }
+
+export const POST = safe(POSTHandler);

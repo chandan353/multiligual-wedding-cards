@@ -1,8 +1,8 @@
 import { getCardBySlug } from "@/lib/store";
 import { validateSlug } from "@/lib/slug";
-import { json } from "@/lib/http";
+import { json, safe } from "@/lib/http";
 
-export async function GET(req: Request) {
+async function GETHandler(req: Request) {
   const u = new URL(req.url);
   const slug = (u.searchParams.get("slug") || "").toLowerCase();
   const cardId = u.searchParams.get("cardId") || "";
@@ -12,3 +12,5 @@ export async function GET(req: Request) {
   if (owner && owner.id !== cardId) return json({ available: false, reason: "That address is already taken." });
   return json({ available: true });
 }
+
+export const GET = safe(GETHandler);

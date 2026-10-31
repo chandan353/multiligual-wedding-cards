@@ -52,7 +52,10 @@ export function sanitizeDesign(input: unknown, fallback: Design): Design {
 }
 
 const okUrl = (u: unknown): u is string =>
-  typeof u === "string" && (/^\/api\/uploads\/[a-zA-Z0-9_-]+\.(jpg|jpeg|png|webp)$/.test(u) || /^\/backgrounds\/[a-z0-9-]+\.svg$/.test(u));
+  typeof u === "string" &&
+  (/^\/api\/uploads\/[a-zA-Z0-9_-]+\.(jpg|jpeg|png|webp)$/.test(u) ||
+    /^\/backgrounds\/[a-z0-9-]+\.svg$/.test(u) ||
+    /^https:\/\/[a-z0-9]+\.public\.blob\.vercel-storage\.com\/uploads\/[a-zA-Z0-9_-]+\.(jpg|jpeg|png|webp)$/.test(u));
 
 function sanitizeImage(v: unknown): ImageAsset | null {
   const i = (v ?? {}) as Partial<ImageAsset>;

@@ -1,10 +1,10 @@
 import { getCardBySlug } from "@/lib/store";
 import { buildIcs } from "@/lib/calendar";
-import { baseUrl, error } from "@/lib/http";
+import { baseUrl, error, safe } from "@/lib/http";
 
 type Ctx = { params: Promise<{ slug: string }> };
 
-export async function GET(req: Request, { params }: Ctx) {
+async function GETHandler(req: Request, { params }: Ctx) {
   const { slug } = await params;
   const card = await getCardBySlug(slug);
   if (!card || card.status !== "published") return error("Invitation not found", 404);
@@ -19,3 +19,5 @@ export async function GET(req: Request, { params }: Ctx) {
     },
   });
 }
+
+export const GET = safe(GETHandler);

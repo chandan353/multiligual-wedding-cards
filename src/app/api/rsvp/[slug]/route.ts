@@ -1,5 +1,5 @@
 import { addRsvp, getCardBySlug } from "@/lib/store";
-import { error, json } from "@/lib/http";
+import { error, json, safe } from "@/lib/http";
 import { uid } from "@/lib/card";
 import { isLangCode } from "@/lib/languages";
 
@@ -15,7 +15,7 @@ function throttled(ip: string): boolean {
   return recent.length > 10;
 }
 
-export async function POST(req: Request, { params }: Ctx) {
+async function POSTHandler(req: Request, { params }: Ctx) {
   const { slug } = await params;
   const card = await getCardBySlug(slug);
   if (!card || card.status !== "published") return error("Invitation not found", 404);
@@ -45,3 +45,5 @@ export async function POST(req: Request, { params }: Ctx) {
   });
   return json({ ok: true }, 201);
 }
+
+export const POST = safe(POSTHandler);

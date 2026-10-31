@@ -20,6 +20,18 @@ export async function authorizedCard(req: Request, id: string): Promise<Card | N
   return card;
 }
 
+/** Wrap a route handler so thrown errors (for example missing storage) reach the user as readable JSON. */
+export function safe<A extends unknown[]>(fn: (...args: A) => Promise<Response>) {
+  return async (...args: A): Promise<Response> => {
+    try {
+      return await fn(...args);
+    } catch (e) {
+      console.error("[api]", e);
+      return error((e as Error).message || "Something went wrong", 500);
+    }
+  };
+}
+
 export function baseUrl(req: Request): string {
   const env = process.env.NEXT_PUBLIC_BASE_URL;
   if (env) return env.replace(/\/$/, "");

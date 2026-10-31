@@ -1,13 +1,13 @@
-import { authorizedCard, json } from "@/lib/http";
+import { authorizedCard, json, safe } from "@/lib/http";
 import { updateCard } from "@/lib/store";
 import { generateDraft } from "@/lib/ai";
 import { applyDraft } from "@/lib/apply";
 import type { Tone } from "@/lib/types";
 
-export const maxDuration = 120;
+export const maxDuration = 60;
 type Ctx = { params: Promise<{ id: string }> };
 
-export async function POST(req: Request, { params }: Ctx) {
+async function POSTHandler(req: Request, { params }: Ctx) {
   const { id } = await params;
   const card = await authorizedCard(req, id);
   if (card instanceof Response) return card;
@@ -24,3 +24,5 @@ export async function POST(req: Request, { params }: Ctx) {
   const updated = await updateCard(id, (c) => applyDraft(c, draft, tone, variant, { keepDesign: Boolean(body.keepTemplate), newColors: Boolean(body.newColors) }));
   return json({ card: updated, rationale: draft.rationale, engine: draft.engine });
 }
+
+export const POST = safe(POSTHandler);

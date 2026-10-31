@@ -2,7 +2,9 @@
   "name": "multilingual-wedding-cards",
   "version": "0.1.0",
   "private": true,
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "description": "AI Multilingual Wedding Cards: design, personalize and publish multilingual digital wedding invitations.",
   "scripts": {
     "dev": "next dev",
@@ -13,6 +15,8 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.3.0",
+    "@upstash/redis": "^1.40.0",
+    "@vercel/blob": "^2.8.2",
     "nanoid": "^5.1.16",
     "next": "^15.5.28",
     "pdf-lib": "^1.17.1",

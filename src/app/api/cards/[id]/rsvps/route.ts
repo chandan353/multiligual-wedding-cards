@@ -1,4 +1,4 @@
-import { authorizedCard, json } from "@/lib/http";
+import { authorizedCard, json, safe } from "@/lib/http";
 import { listRsvps } from "@/lib/store";
 import { rsvpSummary } from "@/lib/card";
 
@@ -11,7 +11,7 @@ const csvCell = (v: unknown) => {
   return `"${safe.replace(/"/g, '""')}"`;
 };
 
-export async function GET(req: Request, { params }: Ctx) {
+async function GETHandler(req: Request, { params }: Ctx) {
   const { id } = await params;
   const card = await authorizedCard(req, id);
   if (card instanceof Response) return card;
@@ -28,3 +28,5 @@ export async function GET(req: Request, { params }: Ctx) {
   }
   return json({ rsvps, summary: rsvpSummary(rsvps) });
 }
+
+export const GET = safe(GETHandler);

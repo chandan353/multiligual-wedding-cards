@@ -1,10 +1,10 @@
 import { newCard, sanitizeContent, emptyContent, sampleContent } from "@/lib/card";
 import { saveCard } from "@/lib/store";
-import { error, json } from "@/lib/http";
+import { error, json, safe } from "@/lib/http";
 import { isLangCode } from "@/lib/languages";
 import { TEMPLATES } from "@/lib/templates";
 
-export async function POST(req: Request) {
+async function POSTHandler(req: Request) {
   const body = await req.json().catch(() => null);
   if (!body) return error("Invalid request");
   const flow = body.flow === "ai" ? "ai" : "template";
@@ -20,3 +20,5 @@ export async function POST(req: Request) {
   await saveCard(card);
   return json({ card }, 201);
 }
+
+export const POST = safe(POSTHandler);

@@ -1,13 +1,13 @@
-import { authorizedCard, error, json } from "@/lib/http";
+import { authorizedCard, error, json, safe } from "@/lib/http";
 import { updateCard } from "@/lib/store";
 import { AiUnavailableError, translateEntries } from "@/lib/ai";
 import { flattenTranslatable } from "@/lib/card";
 import { isLangCode } from "@/lib/languages";
 
-export const maxDuration = 120;
+export const maxDuration = 60;
 type Ctx = { params: Promise<{ id: string }> };
 
-export async function POST(req: Request, { params }: Ctx) {
+async function POSTHandler(req: Request, { params }: Ctx) {
   const { id } = await params;
   const card = await authorizedCard(req, id);
   if (card instanceof Response) return card;
@@ -40,3 +40,5 @@ export async function POST(req: Request, { params }: Ctx) {
     return error("Translation failed. Please try again in a moment.", 502);
   }
 }
+
+export const POST = safe(POSTHandler);
